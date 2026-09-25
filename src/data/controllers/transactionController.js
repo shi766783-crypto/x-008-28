@@ -1,5 +1,5 @@
 import { storage } from '../../core/storage.js'
-import { uid, todayStr } from '../../core/utils.js'
+import { uid, todayStr, money } from '../../core/utils.js'
 import { STORAGE_KEYS, TRANSACTION_TYPES } from '../../core/constants.js'
 import { loadAccounts, saveAccounts } from './accountController.js'
 
@@ -27,6 +27,37 @@ export function formatAccountLabel(accountId) {
   return account ? account.name : '未知账户'
 }
 
+const toCents = (value) => Math.round((Number(value) || 0) * 100)
+
+export function getAccountBalance(account) {
+  return Number(account?.balance ?? account?.initialBalance ?? 0) || 0
+}
+
+export function getBalanceWarning(form, accounts = loadAccounts()) {
+  const amount = Number(form.amount) || 0
+  if (!form.accountId || amount <= 0) return null
+  if (form.type !== TRANSACTION_TYPES.EXPENSE && form.type !== TRANSACTION_TYPES.TRANSFER) return null
+  if (form.type === TRANSACTION_TYPES.TRANSFER && (!form.toAccountId || form.accountId === form.toAccountId)) return null
+
+  const account = accounts.find((a) => a.id === form.accountId)
+  if (!account) return null
+
+  const balance = getAccountBalance(account)
+  if (toCents(amount) <= toCents(balance)) return null
+
+  const afterBalance = balance - amount
+  const actionLabel = form.type === TRANSACTION_TYPES.TRANSFER ? '转账' : '支出'
+  const negativeAmount = money(Math.abs(afterBalance))
+  const confirmMessage = `${form.type === TRANSACTION_TYPES.TRANSFER ? '转出' : '支出'}账户「${account.name}」当前余额为 ¥${money(balance)}，本次${actionLabel}金额为 ¥${money(amount)}，记账后余额将变为 -¥${negativeAmount}。\n\n余额不足，确认仍要继续记账吗？`
+
+  return { accountName: account.name, balance, amount, afterBalance, confirmMessage }
+}
+
+export function confirmBalanceWarning(form, accounts = loadAccounts(), confirmFn = window.confirm) {
+  const warning = getBalanceWarning(form, accounts)
+  return !warning || confirmFn(warning.confirmMessage)
+}
+
 export function normalizeTransaction(form) {
   const amount = Number(form.amount) || 0
   const base = {
@@ -45,8 +76,8 @@ export function normalizeTransaction(form) {
 
 function applyTransfer(accounts, fromAccountId, toAccountId, amount) {
   return accounts.map((a) => {
-    if (a.id === fromAccountId) return { ...a, balance: a.balance - amount }
-    if (a.id === toAccountId) return { ...a, balance: a.balance + amount }
+    if (a.id === fromAccountId) return { ...a, balance: getAccountBalance(a) - amount }
+    if (a.id === toAccountId) return { ...a, balance: getAccountBalance(a) + amount }
     return a
   })
 }
@@ -63,19 +94,21 @@ function reconcileAll() {
       balances.set(t.toAccountId, (balances.get(t.toAccountId) || 0) + t.amount)
     }
   }
-  saveAccounts(accounts.map((a) => ({ ...a, balance: balances.get(a.id) || 0 })))
+  saveAccounts(accounts.map((a) => ({ ...a, balance: balances.get(a.id) ?? 0 })))
 }
 
-export function addTransaction(form) {
+export function addTransaction(form, options = {}) {
   const accounts = loadAccounts()
-  if (!form.accountId || !form.amount) return null
-  if (form.type === TRANSACTION_TYPES.TRANSFER && form.accountId === form.toAccountId) return null
+  const amount = Number(form.amount) || 0
+  if (!form.accountId || amount <= 0) return null
+  if (form.type === TRANSACTION_TYPES.TRANSFER && (!form.toAccountId || form.accountId === form.toAccountId)) return null
+  if (!options.skipBalanceCheck && !confirmBalanceWarning(form, accounts, options.confirmFn || window.confirm)) return null
   const transaction = normalizeTransaction(form)
   const nextAccounts = form.type === TRANSACTION_TYPES.TRANSFER
     ? applyTransfer(accounts, form.accountId, form.toAccountId, transaction.amount)
     : accounts.map((a) =>
         a.id === form.accountId
-          ? { ...a, balance: a.balance + (form.type === TRANSACTION_TYPES.INCOME ? transaction.amount : -transaction.amount) }
+          ? { ...a, balance: getAccountBalance(a) + (form.type === TRANSACTION_TYPES.INCOME ? transaction.amount : -transaction.amount) }
           : a
       )
   saveAccounts(nextAccounts)

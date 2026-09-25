@@ -79,6 +79,13 @@
           <input v-model.number="form.amount" type="number" min="0.01" step="0.01" required placeholder="0.00" />
         </label>
 
+        <p v-if="balanceWarning" class="balance-warning" role="alert">
+          {{ form.type === 'transfer' ? '转出' : '支出' }}账户「{{ balanceWarning.accountName }}」当前余额为
+          <strong>¥{{ money(balanceWarning.balance) }}</strong>，本次{{ form.type === 'transfer' ? '转账' : '支出' }}
+          <strong>¥{{ money(balanceWarning.amount) }}</strong>，保存后余额将变为
+          <strong>-¥{{ money(Math.abs(balanceWarning.afterBalance)) }}</strong>。确认后仍可继续保存。
+        </p>
+
         <label class="field" v-if="form.type !== 'transfer'">
           <span>类别</span>
           <select v-model="form.category">
@@ -136,6 +143,7 @@ const switchType = (type) => {
 
 const currentCategories = computed(() => (form.type === TRANSACTION_TYPES.INCOME ? INCOME_CATEGORIES : EXPENSE_CATEGORIES))
 const otherAccounts = computed(() => store.accounts.filter((a) => a.id !== form.accountId))
+const balanceWarning = computed(() => txApi.getBalanceWarning(form, store.accounts))
 
 const visibleTransactions = computed(() => {
   let list = [...store.transactions]
@@ -171,12 +179,19 @@ const openCreate = () => {
 }
 
 const submit = () => {
-  if (!form.accountId || !form.amount) return
-  if (form.type === 'transfer' && form.accountId === form.toAccountId) {
-    alert('转账账户不能相同')
-    return
+  const amount = Number(form.amount) || 0
+  if (!form.accountId || amount <= 0) return
+  if (form.type === 'transfer') {
+    if (!form.toAccountId) return
+    if (form.accountId === form.toAccountId) {
+      alert('转账账户不能相同')
+      return
+    }
   }
-  txApi.addTransaction(form)
+  if (!txApi.confirmBalanceWarning(form, store.accounts)) return
+
+  const transaction = txApi.addTransaction(form, { skipBalanceCheck: true })
+  if (!transaction) return
   refreshKeys('transactions', 'accounts')
   modalOpen.value = false
   controllersApi.achievement.updateAchievements()
@@ -287,6 +302,19 @@ const remove = (t) => {
 }
 .field-check {
   margin-top: 6px;
+}
+.balance-warning {
+  margin: -2px 0 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(224, 82, 96, 0.28);
+  background: rgba(224, 82, 96, 0.08);
+  color: #b4232f;
+  font-size: 12.5px;
+  line-height: 1.6;
+}
+.balance-warning strong {
+  font-weight: 800;
 }
 .empty-row {
   text-align: center;

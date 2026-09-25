@@ -21,7 +21,8 @@ export function normalizeAccount(form) {
     id: uid(),
     name: String(form.name || '').trim(),
     type: form.type,
-    initialBalance: Number(form.initialBalance) || 0
+    initialBalance: Number(form.initialBalance) || 0,
+    balance: Number(form.initialBalance) || 0
   }
 }
 
