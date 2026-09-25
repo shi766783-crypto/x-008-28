@@ -64,6 +64,9 @@
             <option value="" disabled>选择账户</option>
             <option v-for="a in store.accounts" :key="a.id" :value="a.id">{{ a.name }}</option>
           </select>
+          <small v-if="selectedAccount" class="balance-hint" :class="{ short: balanceWarning }">
+            当前余额 ¥{{ money(accountBalance(selectedAccount)) }}
+          </small>
         </label>
 
         <label class="field" v-if="form.type === 'transfer'">
@@ -78,6 +81,11 @@
           <span>金额</span>
           <input v-model.number="form.amount" type="number" min="0.01" step="0.01" required placeholder="0.00" />
         </label>
+
+        <div v-if="balanceWarning" class="balance-warn">
+          ⚠️ {{ balanceWarning.message }}
+          <span class="balance-warn-tip">点击保存时会再次请你确认，确认后仍可继续记账。</span>
+        </div>
 
         <label class="field" v-if="form.type !== 'transfer'">
           <span>类别</span>
@@ -137,6 +145,10 @@ const switchType = (type) => {
 const currentCategories = computed(() => (form.type === TRANSACTION_TYPES.INCOME ? INCOME_CATEGORIES : EXPENSE_CATEGORIES))
 const otherAccounts = computed(() => store.accounts.filter((a) => a.id !== form.accountId))
 
+const selectedAccount = computed(() => store.accounts.find((a) => a.id === form.accountId) || null)
+const accountBalance = (account) => (Number.isFinite(Number(account?.balance)) ? Number(account.balance) : Number(account?.initialBalance) || 0)
+const balanceWarning = computed(() => txApi.getInsufficientBalance(form, store.accounts))
+
 const visibleTransactions = computed(() => {
   let list = [...store.transactions]
   if (filters.type) list = list.filter((t) => t.type === filters.type)
@@ -176,6 +188,7 @@ const submit = () => {
     alert('转账账户不能相同')
     return
   }
+  if (!txApi.confirmInsufficientBalance(form, store.accounts)) return
   txApi.addTransaction(form)
   refreshKeys('transactions', 'accounts')
   modalOpen.value = false
@@ -287,6 +300,31 @@ const remove = (t) => {
 }
 .field-check {
   margin-top: 6px;
+}
+.balance-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.balance-hint.short {
+  color: var(--expense);
+  font-weight: 600;
+}
+.balance-warn {
+  margin: 2px 0 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(244, 91, 105, 0.1);
+  border: 1px solid rgba(244, 91, 105, 0.4);
+  color: var(--expense);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.balance-warn-tip {
+  display: block;
+  font-size: 12px;
+  opacity: 0.85;
 }
 .empty-row {
   text-align: center;
